@@ -601,7 +601,15 @@ async def summary_command(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
         return
 
     await message.reply_text(
-        format_daily_summary(summary, config.daily_water_goal_ml, config.daily_calorie_goal),
+        format_daily_summary(
+            summary,
+            config.daily_water_goal_ml,
+            config.daily_calorie_goal,
+            config.daily_protein_goal_g,
+            config.daily_carbs_goal_g,
+            config.daily_fat_goal_g,
+            config.daily_fiber_goal_g,
+        ),
         parse_mode=ParseMode.HTML,
     )
 

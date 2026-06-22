@@ -137,28 +137,41 @@ def format_water_confirmation(amount_ml: int, total_today_ml: int, goal_ml: int)
     return "\n".join(lines)
 
 
-def format_daily_summary(summary: DailySummaryData, water_goal_ml: int, calorie_goal: int) -> str:
+def format_daily_summary(
+    summary: DailySummaryData,
+    water_goal_ml: int,
+    calorie_goal: int,
+    protein_goal_g: int = 150,
+    carbs_goal_g: int = 225,
+    fat_goal_g: int = 65,
+    fiber_goal_g: int = 25,
+) -> str:
+    """Format daily summary with all nutritional goals and ASCII progress bars."""
     water_liters = summary.water_ml / 1000
     water_goal_liters = water_goal_ml / 1000
 
-    calorie_note = ""
-    if calorie_goal:
-        diff = summary.total_calories - calorie_goal
-        if abs(diff) < 50:
-            calorie_note = " (on target)"
-        elif diff > 0:
-            calorie_note = f" (+{diff:.0f} over goal)"
-        else:
-            calorie_note = f" ({abs(diff):.0f} under goal)"
+    # Calculate completion percentages
+    calorie_pct = (summary.total_calories / calorie_goal * 100) if calorie_goal else 0
+    protein_pct = (summary.total_protein / protein_goal_g * 100) if protein_goal_g else 0
+    carbs_pct = (summary.total_carbs / carbs_goal_g * 100) if carbs_goal_g else 0
+    fat_pct = (summary.total_fat / fat_goal_g * 100) if fat_goal_g else 0
+    fiber_pct = (summary.total_fiber / fiber_goal_g * 100) if fiber_goal_g else 0
+    water_pct = (summary.water_ml / water_goal_ml * 100) if water_goal_ml else 0
+
+    # Create inline ASCII progress bars with percentage
+    def progress_line(current: float, goal: float, unit: str, pct: float) -> str:
+        filled = int(pct / 10)
+        bar = "█" * filled + "░" * (10 - filled)
+        return f"{current:.1f}/{goal} {unit} {bar} {pct:.0f}%"
 
     return (
         "📊 <b>Daily Summary</b>\n\n"
-        f"Calories: <b>{summary.total_calories:.0f} kcal</b>{calorie_note}\n"
-        f"Protein: {summary.total_protein:.1f} g\n"
-        f"Carbs: {summary.total_carbs:.1f} g\n"
-        f"Fat: {summary.total_fat:.1f} g\n"
-        f"Fiber: {summary.total_fiber:.1f} g\n\n"
-        f"Water: {water_liters:.2f} L / {water_goal_liters:.2f} L\n\n"
+        f"<b>Calories:</b> {progress_line(summary.total_calories, calorie_goal, 'kcal', calorie_pct)}\n\n"
+        f"<b>Protein:</b> {progress_line(summary.total_protein, protein_goal_g, 'g', protein_pct)}\n\n"
+        f"<b>Carbs:</b> {progress_line(summary.total_carbs, carbs_goal_g, 'g', carbs_pct)}\n\n"
+        f"<b>Fat:</b> {progress_line(summary.total_fat, fat_goal_g, 'g', fat_pct)}\n\n"
+        f"<b>Fiber:</b> {progress_line(summary.total_fiber, fiber_goal_g, 'g', fiber_pct)}\n\n"
+        f"💧 <b>Water:</b> {water_liters:.2f}/{water_goal_liters:.2f} L ({water_pct:.0f}%)\n\n"
         f"Meals Logged: {summary.meals_logged}"
     )
 
