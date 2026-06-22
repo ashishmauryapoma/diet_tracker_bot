@@ -1,0 +1,103 @@
+# =============================================================================
+# Render Blueprint — Diet Tracker Telegram Bot
+# =============================================================================
+# Deploy steps:
+#   1. Push this project to a GitHub / GitLab repo.
+#   2. In Render, click "New +" → "Blueprint" and connect the repo.
+#      Render reads this file and creates the service automatically.
+#   3. After the first deploy, go to the service's "Environment" tab and
+#      fill in the secret values marked sync: false below.
+#   4. Copy your Render service URL (e.g. https://diet-tracker-bot.onrender.com)
+#      and set it as WEBHOOK_URL in the same Environment tab.
+#   5. Trigger a manual re-deploy — the bot will register the webhook with
+#      Telegram and start receiving updates.
+# =============================================================================
+
+services:
+  - type: web
+    name: diet-tracker-bot
+    runtime: python
+    region: oregon          # change to your preferred Render region
+    plan: free              # upgrade to "starter" for always-on (no cold starts)
+
+    buildCommand: pip install -r requirements.txt
+    startCommand: python main.py
+
+    # Render's health-check pings GET /  — PTB's webhook server returns 200 OK
+    # on any GET request to the root, so no extra health endpoint is needed.
+    healthCheckPath: /
+
+    envVars:
+      # ── Telegram ────────────────────────────────────────────────────────────
+      - key: TELEGRAM_BOT_TOKEN
+        sync: false          # fill in the Render dashboard (never commit secrets)
+
+      - key: AUTH_PASSWORD
+        sync: false
+
+      # ── Render webhook (auto-set after first deploy) ─────────────────────────
+      # Set WEBHOOK_URL = https://<your-service-name>.onrender.com
+      # after the first deploy so the bot knows its own public URL.
+      - key: WEBHOOK_URL
+        sync: false
+
+      # PORT is injected automatically by Render — do NOT add it here.
+
+      # ── Groq AI ──────────────────────────────────────────────────────────────
+      - key: GROQ_API_KEY
+        sync: false
+
+      - key: GROQ_MODEL
+        value: llama-3.3-70b-versatile
+
+      # ── Google service-account fields (from your downloaded JSON) ────────────
+      - key: GOOGLE_PROJECT_ID
+        sync: false
+
+      - key: GOOGLE_PRIVATE_KEY_ID
+        sync: false
+
+      - key: GOOGLE_PRIVATE_KEY
+        sync: false          # paste the full PEM block with \n for newlines
+
+      - key: GOOGLE_CLIENT_EMAIL
+        sync: false
+
+      - key: GOOGLE_CLIENT_ID
+        sync: false
+
+      - key: GOOGLE_CLIENT_X509_CERT_URL
+        sync: false
+
+      # ── Google Sheet ─────────────────────────────────────────────────────────
+      - key: GOOGLE_SHEET_ID
+        sync: false
+
+      - key: GOOGLE_SHEET_NAME
+        value: Diet Tracker   # fallback if GOOGLE_SHEET_ID is blank
+
+      # ── App behaviour ────────────────────────────────────────────────────────
+      - key: APP_TIMEZONE
+        value: Asia/Kolkata
+
+      - key: DAILY_WATER_GOAL_ML
+        value: "3000"
+
+      - key: DAILY_CALORIE_GOAL
+        value: "2000"
+
+      # ── Reliability ──────────────────────────────────────────────────────────
+      - key: MAX_RETRIES
+        value: "3"
+
+      - key: RETRY_BACKOFF_SECONDS
+        value: "2"
+
+      # ── Logging ──────────────────────────────────────────────────────────────
+      - key: LOG_LEVEL
+        value: INFO
+
+      # On Render there is no persistent disk, so logs go to stdout only.
+      # The LOG_FILE path is still set but will only be written locally.
+      - key: LOG_FILE
+        value: logs/bot.log

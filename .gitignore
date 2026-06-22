@@ -1,0 +1,17 @@
+# Secrets — never commit these
+.env
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+venv/
+*.egg-info/
+
+# Logs
+logs/*.log*
+
+# OS / editor
+.DS_Store
+.idea/
+.vscode/

@@ -1,0 +1,2 @@
+Log files are written here at runtime (bot.log, with automatic rotation).
+This directory is intentionally tracked empty; actual *.log files are git-ignored.

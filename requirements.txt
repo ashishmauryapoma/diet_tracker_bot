@@ -1,0 +1,15 @@
+# Telegram bot framework — [job-queue] adds APScheduler for reminders.
+python-telegram-bot[job-queue]>=22.8
+
+# Groq AI SDK (async) — nutrition analysis + daily coaching.
+groq>=0.31.0
+
+# Google Sheets access (no JSON file — uses service_account_info dict).
+gspread>=6.1.0
+google-auth>=2.35.0
+
+# .env file loading (no-op when env vars are already set by Render).
+python-dotenv>=1.0.1
+
+# Retry + exponential backoff for Groq and Sheets calls.
+tenacity>=9.0.0
