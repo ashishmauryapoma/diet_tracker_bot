@@ -419,18 +419,52 @@ async def water_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
     if message is None:
         return
 
+    config, _groq, sheets_client = _services(context)
+
     if context.args:
         digits = "".join(ch for ch in context.args[0] if ch.isdigit())
         if not digits:
             await message.reply_text("Usage: /water <amount in ml>, e.g. /water 500")
             return
-        await _log_water(int(digits), update, context)
+        await _log_water_with_preview(int(digits), update, context)
         return
 
-    await message.reply_text(
-        "💧 How much water would you like to log?",
-        reply_markup=water_quick_add_keyboard(),
+    # Show today's water goal completion chart
+    try:
+        summary = await sheets_client.compute_today_summary(_today_str(config))
+    except SheetsError:
+        await message.reply_text(
+            "⚠️ Couldn't reach Google Sheets right now. Please try /water again shortly."
+        )
+        return
+
+    water_liters = summary.water_ml / 1000
+    water_goal_liters = config.daily_water_goal_ml / 1000
+    remaining = max(config.daily_water_goal_ml - summary.water_ml, 0)
+    progress = min(summary.water_ml / config.daily_water_goal_ml, 1.0) if config.daily_water_goal_ml else 0
+    filled = int(progress * 10)
+    bar = "🟦" * filled + "⬜" * (10 - filled)
+
+    response = (
+        f"💧 <b>Today's Water Intake</b>\n\n"
+        f"{bar}\n"
+        f"<b>{water_liters:.2f} L</b> / {water_goal_liters:.2f} L goal\n\n"
     )
+
+    if remaining > 0:
+        response += f"Remaining: <b>{remaining} ml</b>\n\n"
+    else:
+        response += "🎉 <b>Goal reached for today!</b>\n\n"
+
+    response += (
+        "To log water, send the amount in plain text:\n"
+        "<i>drank 500ml water</i>\n"
+        "<i>2 glasses of water</i>\n"
+        "<i>1 litre water</i>\n\n"
+        "Or use: /water 250"
+    )
+
+    await message.reply_text(response, parse_mode=ParseMode.HTML)
 
 
 async def water_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -444,6 +478,7 @@ async def water_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
 
     await query.answer()
 
+    # ── Quick-add buttons (from /water command) ────────────────────────────
     if query.data == WATER_CUSTOM_CALLBACK:
         context.user_data[_AWAITING_WATER_CUSTOM] = True
         if query.message is not None:
@@ -457,6 +492,11 @@ async def water_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         except ValueError:
             return
         await _log_water_direct(amount_ml, update, context, edit_query=query)
+        return
+
+    # ── Water confirm/undo buttons (from preview) ──────────────────────────
+    # Delegate to water_confirm_callback for the confirm/undo flow
+    await water_confirm_callback(update, context)
 
 
 async def _log_water_with_preview(
