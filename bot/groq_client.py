@@ -3,7 +3,8 @@ Groq AI integration.
 
 Responsible for:
   1. Turning a free-text food description into structured nutrition data.
-  2. Analyzing a full day's worth of logged food + water into a coaching
+  2. Detecting water intake from plain text and extracting the amount in ml.
+  3. Analyzing a full day's worth of logged food + water into a coaching
      summary (nutrition score, strengths, improvements, recommendation).
 
 All network calls are wrapped with retry logic (exponential backoff) since
@@ -33,6 +34,10 @@ logger = logging.getLogger(__name__)
 class GroqAnalysisError(RuntimeError):
     """Raised when Groq fails to produce usable nutrition data after retries."""
 
+
+# --------------------------------------------------------------------------- #
+# System prompts
+# --------------------------------------------------------------------------- #
 
 FOOD_ANALYSIS_SYSTEM_PROMPT = """\
 You are a professional nutritionist and food-data analyst with deep knowledge \
@@ -69,6 +74,30 @@ leans lunch, 4pm-9pm leans dinner, otherwise snack).
 - Never include any commentary, units inside numbers, or markdown formatting.
 """
 
+WATER_INTENT_SYSTEM_PROMPT = """\
+You are a health-tracking assistant. Determine whether a user's message is \
+describing drinking water or a beverage that is essentially water \
+(e.g. plain water, sparkling water, coconut water, herbal tea — \
+NOT sugary drinks, milk, juice, or smoothies).
+
+Respond with ONLY a single valid JSON object and nothing else — no markdown \
+fences, no extra text:
+
+{
+  "is_water": <true or false>,
+  "amount_ml": <integer millilitres if is_water is true, otherwise 0>
+}
+
+Conversion rules:
+- 1 L / litre / liter = 1000 ml
+- 1 glass = 250 ml
+- 1 cup = 240 ml
+- 1 bottle = 500 ml
+- If no amount is mentioned but is_water is true, use 500 (one glass default).
+- amount_ml must be between 1 and 5000; clamp if out of range.
+- Set is_water to false for food items that happen to contain water (e.g. soup, fruit).
+"""
+
 DAILY_ANALYSIS_SYSTEM_PROMPT = """\
 You are an expert dietitian and supportive nutrition coach reviewing a single \
 day of a client's logged food and water intake.
@@ -94,10 +123,20 @@ most 4 short items (a few words to one short sentence each).
 """
 
 
+# --------------------------------------------------------------------------- #
+# Client
+# --------------------------------------------------------------------------- #
+
 class GroqNutritionClient:
     """Thin async wrapper around the Groq chat-completions API."""
 
-    def __init__(self, api_key: str, model: str, max_retries: int = 3, backoff_seconds: float = 2.0) -> None:
+    def __init__(
+        self,
+        api_key: str,
+        model: str,
+        max_retries: int = 3,
+        backoff_seconds: float = 2.0,
+    ) -> None:
         self._client = AsyncGroq(api_key=api_key)
         self._model = model
         self._max_retries = max_retries
@@ -107,12 +146,14 @@ class GroqNutritionClient:
         return AsyncRetrying(
             stop=stop_after_attempt(self._max_retries),
             wait=wait_exponential(multiplier=self._backoff_seconds, min=1, max=30),
-            retry=retry_if_exception_type((APIConnectionError, RateLimitError, APIStatusError, json.JSONDecodeError)),
+            retry=retry_if_exception_type(
+                (APIConnectionError, RateLimitError, APIStatusError, json.JSONDecodeError)
+            ),
             reraise=True,
         )
 
     async def _chat_json(self, system_prompt: str, user_prompt: str) -> dict[str, Any]:
-        """Call Groq with JSON-mode and return the parsed JSON object."""
+        """Call Groq in JSON mode and return the parsed JSON object."""
         last_error: Exception | None = None
         try:
             async for attempt in self._retryer():
@@ -134,15 +175,20 @@ class GroqNutritionClient:
                     try:
                         return json.loads(content)
                     except json.JSONDecodeError as exc:
-                        logger.warning("Groq returned non-JSON content, will retry: %s", content[:200])
+                        logger.warning(
+                            "Groq returned non-JSON content, will retry: %s", content[:200]
+                        )
                         raise exc
-        except Exception as exc:  # noqa: BLE001 - we want to wrap *any* failure after retries
+        except Exception as exc:  # noqa: BLE001
             last_error = exc
             logger.error("Groq API call failed after retries: %s", exc, exc_info=True)
             raise GroqAnalysisError(f"Groq API call failed: {exc}") from last_error
 
-        # Unreachable, but keeps type-checkers happy.
         raise GroqAnalysisError("Groq API call failed for an unknown reason.")
+
+    # ------------------------------------------------------------------ #
+    # Public methods
+    # ------------------------------------------------------------------ #
 
     async def analyze_food(self, text: str, logged_at: datetime) -> NutritionInfo:
         """Analyze a free-text food description and return structured nutrition data."""
@@ -153,13 +199,42 @@ class GroqNutritionClient:
             raise ValidationError("Food description is too long (max 500 characters).")
 
         user_prompt = f"Local time: {logged_at.strftime('%H:%M')}. Food entry: {text}"
-
         data = await self._chat_json(FOOD_ANALYSIS_SYSTEM_PROMPT, user_prompt)
         try:
             return NutritionInfo.from_groq_json(data, original_text=text, logged_at=logged_at)
         except ValidationError:
-            logger.error("Groq returned invalid nutrition data for input %r: %s", text, data)
+            logger.error(
+                "Groq returned invalid nutrition data for input %r: %s", text, data
+            )
             raise
+
+    async def detect_water_intake(self, text: str) -> tuple[bool, int]:
+        """
+        Ask Groq whether a plain-text message is about drinking water.
+
+        Returns:
+            (is_water, amount_ml) — e.g. (True, 500) or (False, 0).
+
+        This is only called when the fast regex in utils.try_parse_water_ml()
+        returns None but the text still contains water-related keywords.
+        """
+        text = text.strip()
+        if not text:
+            return False, 0
+
+        try:
+            data = await self._chat_json(WATER_INTENT_SYSTEM_PROMPT, text)
+        except GroqAnalysisError:
+            # If AI fails, fall back gracefully — treat as not water
+            return False, 0
+
+        is_water = bool(data.get("is_water", False))
+        try:
+            amount_ml = max(0, min(5000, int(data.get("amount_ml", 0))))
+        except (TypeError, ValueError):
+            amount_ml = 0
+
+        return is_water, amount_ml
 
     async def analyze_day(
         self,
@@ -174,10 +249,10 @@ class GroqNutritionClient:
 
         totals = {
             "calories": sum(float(r.get("calories", 0)) for r in food_rows),
-            "protein": sum(float(r.get("protein", 0)) for r in food_rows),
-            "carbs": sum(float(r.get("carbs", 0)) for r in food_rows),
-            "fat": sum(float(r.get("fat", 0)) for r in food_rows),
-            "fiber": sum(float(r.get("fiber", 0)) for r in food_rows),
+            "protein":  sum(float(r.get("protein",  0)) for r in food_rows),
+            "carbs":    sum(float(r.get("carbs",    0)) for r in food_rows),
+            "fat":      sum(float(r.get("fat",      0)) for r in food_rows),
+            "fiber":    sum(float(r.get("fiber",    0)) for r in food_rows),
         }
         meals_text = "\n".join(
             f"- [{r.get('meal_type', 'unknown')}] {r.get('food', 'unknown')} "
@@ -191,10 +266,10 @@ class GroqNutritionClient:
             f"Daily water goal: {water_goal_ml} ml\n\n"
             f"Totals so far today:\n"
             f"- Calories: {totals['calories']:.0f} kcal\n"
-            f"- Protein: {totals['protein']:.1f} g\n"
-            f"- Carbs: {totals['carbs']:.1f} g\n"
-            f"- Fat: {totals['fat']:.1f} g\n"
-            f"- Fiber: {totals['fiber']:.1f} g\n"
+            f"- Protein:  {totals['protein']:.1f} g\n"
+            f"- Carbs:    {totals['carbs']:.1f} g\n"
+            f"- Fat:      {totals['fat']:.1f} g\n"
+            f"- Fiber:    {totals['fiber']:.1f} g\n"
             f"- Water intake: {water_ml} ml\n\n"
             f"Meals logged today:\n{meals_text}\n"
         )

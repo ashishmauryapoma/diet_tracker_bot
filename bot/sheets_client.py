@@ -120,8 +120,87 @@ class SheetsClient:
 
         logger.info("Connected to Google Spreadsheet: %s", self._spreadsheet.title)
 
+    # Header fill colours per sheet (RGB 0–1 floats)
+    _HEADER_COLORS = {
+        FOOD_LOG_SHEET:       {"red": 0.204, "green": 0.659, "blue": 0.325},  # green
+        WATER_LOG_SHEET:      {"red": 0.259, "green": 0.522, "blue": 0.957},  # blue
+        DAILY_SUMMARY_SHEET:  {"red": 0.984, "green": 0.737, "blue": 0.020},  # amber
+    }
+
+    def _format_header_row(self, ws: gspread.Worksheet, num_cols: int, sheet_title: str) -> None:
+        """Apply bold text, background colour, frozen row, and auto column width."""
+        sheet_id = ws.id
+        color = self._HEADER_COLORS.get(sheet_title, {"red": 0.9, "green": 0.9, "blue": 0.9})
+
+        requests: list[dict] = [
+            # Bold + white text + background colour on the header row
+            {
+                "repeatCell": {
+                    "range": {
+                        "sheetId": sheet_id,
+                        "startRowIndex": 0,
+                        "endRowIndex": 1,
+                        "startColumnIndex": 0,
+                        "endColumnIndex": num_cols,
+                    },
+                    "cell": {
+                        "userEnteredFormat": {
+                            "backgroundColor": color,
+                            "textFormat": {
+                                "bold": True,
+                                "fontSize": 10,
+                                "foregroundColor": {"red": 1.0, "green": 1.0, "blue": 1.0},
+                            },
+                            "horizontalAlignment": "CENTER",
+                            "verticalAlignment": "MIDDLE",
+                            "wrapStrategy": "CLIP",
+                        }
+                    },
+                    "fields": "userEnteredFormat(backgroundColor,textFormat,horizontalAlignment,verticalAlignment,wrapStrategy)",
+                }
+            },
+            # Freeze the header row so it stays visible while scrolling
+            {
+                "updateSheetProperties": {
+                    "properties": {
+                        "sheetId": sheet_id,
+                        "gridProperties": {"frozenRowCount": 1},
+                    },
+                    "fields": "gridProperties.frozenRowCount",
+                }
+            },
+            # Set a fixed row height for the header (30 px)
+            {
+                "updateDimensionProperties": {
+                    "range": {
+                        "sheetId": sheet_id,
+                        "dimension": "ROWS",
+                        "startIndex": 0,
+                        "endIndex": 1,
+                    },
+                    "properties": {"pixelSize": 30},
+                    "fields": "pixelSize",
+                }
+            },
+            # Auto-resize all data columns to fit content
+            {
+                "autoResizeDimensions": {
+                    "dimensions": {
+                        "sheetId": sheet_id,
+                        "dimension": "COLUMNS",
+                        "startIndex": 0,
+                        "endIndex": num_cols,
+                    }
+                }
+            },
+        ]
+
+        assert self._spreadsheet is not None
+        self._spreadsheet.batch_update({"requests": requests})
+        logger.info("Applied header formatting to worksheet '%s'.", ws.title)
+
     def _ensure_worksheets_sync(self) -> None:
-        """Create missing worksheets / fix wrong headers (blocking)."""
+        """Create missing worksheets / fix wrong headers / apply formatting (blocking)."""
         assert self._spreadsheet is not None
         specs = {
             FOOD_LOG_SHEET: FOOD_LOG_HEADERS,
@@ -137,6 +216,7 @@ class SheetsClient:
                     title=title, rows=1000, cols=len(headers) + 2
                 )
                 ws.append_row(headers, value_input_option="USER_ENTERED")
+                self._format_header_row(ws, len(headers), title)
                 continue
 
             first_row = ws.row_values(1)
@@ -147,6 +227,9 @@ class SheetsClient:
                     values=[headers],
                     value_input_option="USER_ENTERED",
                 )
+
+            # Always (re-)apply formatting so existing sheets get updated too
+            self._format_header_row(ws, len(headers), title)
 
     async def connect(self) -> None:
         """Public async entry point — authenticate and prepare worksheets."""
@@ -289,3 +372,98 @@ class SheetsClient:
         summary = await self.compute_today_summary(date_str)
         await self.upsert_daily_summary(summary)
         return summary
+
+    # ------------------------------------------------------------------ #
+    # Sheet-change polling helpers
+    # ------------------------------------------------------------------ #
+
+    def _get_row_count_sync(self, sheet_title: str) -> int:
+        """Return the number of data rows (excluding header) in a worksheet."""
+        ws = self._worksheet(sheet_title)
+        for attempt in self._retryer():
+            with attempt:
+                # col_count=1 is enough — we only need to know how many rows exist
+                values = ws.col_values(1)
+                # values[0] is the header; remaining entries are data rows
+                return max(0, len(values) - 1)
+        return 0
+
+    def _get_rows_from_sync(
+        self, sheet_title: str, from_row: int
+    ) -> list[list[str]]:
+        """
+        Return all rows strictly after `from_row` (1-based, header = row 1).
+        E.g. from_row=3 returns rows 4, 5, 6, …
+        """
+        ws = self._worksheet(sheet_title)
+        for attempt in self._retryer():
+            with attempt:
+                all_values = ws.get_all_values()
+                # all_values[0] is the header row (index 0 → sheet row 1)
+                # data starts at index 1 → sheet row 2
+                # We want sheet rows > from_row → list indices > from_row - 1
+                return all_values[from_row:]  # from_row is already the list index
+        return []
+
+    async def get_new_food_rows(self, known_row_count: int) -> list[dict[str, Any]]:
+        """
+        Return food log rows added after `known_row_count` data rows were seen.
+        Each entry is a dict with the same keys as get_today_food_rows().
+        """
+        try:
+            raw = await asyncio.to_thread(
+                self._get_rows_from_sync, FOOD_LOG_SHEET, known_row_count + 1
+            )
+        except APIError as exc:
+            raise SheetsError(f"Could not read new food rows: {exc}") from exc
+
+        headers = FOOD_LOG_HEADERS
+        result = []
+        for row in raw:
+            if not any(row):  # skip blank rows
+                continue
+            padded = row + [""] * (len(headers) - len(row))
+            d = dict(zip(headers, padded))
+            result.append({
+                "date":      d.get("Date", ""),
+                "time":      d.get("Time", ""),
+                "food":      d.get("Food", ""),
+                "calories":  d.get("Calories", "0") or "0",
+                "protein":   d.get("Protein", "0") or "0",
+                "carbs":     d.get("Carbs", "0") or "0",
+                "fat":       d.get("Fat", "0") or "0",
+                "fiber":     d.get("Fiber", "0") or "0",
+                "meal_type": d.get("Meal Type", ""),
+            })
+        return result
+
+    async def get_new_water_rows(self, known_row_count: int) -> list[dict[str, Any]]:
+        """
+        Return water log rows added after `known_row_count` data rows were seen.
+        """
+        try:
+            raw = await asyncio.to_thread(
+                self._get_rows_from_sync, WATER_LOG_SHEET, known_row_count + 1
+            )
+        except APIError as exc:
+            raise SheetsError(f"Could not read new water rows: {exc}") from exc
+
+        headers = WATER_LOG_HEADERS
+        result = []
+        for row in raw:
+            if not any(row):
+                continue
+            padded = row + [""] * (len(headers) - len(row))
+            d = dict(zip(headers, padded))
+            result.append({
+                "date":      d.get("Date", ""),
+                "time":      d.get("Time", ""),
+                "amount_ml": d.get("Amount (ml)", "0") or "0",
+            })
+        return result
+
+    async def get_row_counts(self) -> tuple[int, int]:
+        """Return (food_row_count, water_row_count) — data rows only, no header."""
+        food_count = await asyncio.to_thread(self._get_row_count_sync, FOOD_LOG_SHEET)
+        water_count = await asyncio.to_thread(self._get_row_count_sync, WATER_LOG_SHEET)
+        return food_count, water_count

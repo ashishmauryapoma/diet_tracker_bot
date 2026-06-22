@@ -44,6 +44,7 @@ from bot.handlers import (
     water_command,
 )
 from bot.logger import setup_logging
+from bot.scheduler import schedule_sheet_poller
 from bot.sheets_client import SheetsClient, SheetsError
 
 logger = logging.getLogger(__name__)
@@ -73,6 +74,10 @@ async def _post_init(application: Application) -> None:
             BotCommand("today",   "See everything logged today"),
         ]
     )
+
+    # Start the sheet-change poller — detects rows added manually in Google Sheets
+    schedule_sheet_poller(application)
+
     logger.info("Bot initialised and ready.")
 
 

@@ -8,11 +8,90 @@ use Telegram's HTML parse mode.
 
 from __future__ import annotations
 
+import re
 from html import escape
 from typing import Any
 
-from bot.config import Config
 from bot.models import DailySummaryData, NutritionInfo
+
+# ---------------------------------------------------------------------------
+# Water intent detection — fast regex (no API call needed for obvious cases)
+# ---------------------------------------------------------------------------
+
+# Keywords that strongly suggest the user is talking about water / hydration
+_WATER_KEYWORDS = re.compile(
+    r"\b(water|drink|drank|gulp|sip|bottle|glass|hydrat|h2o|fluid|aqua)\b",
+    re.IGNORECASE,
+)
+
+# Extract a numeric amount + optional unit (ml / l / litre / liter / glass / cup)
+_AMOUNT_PATTERN = re.compile(
+    r"(\d+(?:\.\d+)?)\s*"          # number (integer or decimal)
+    r"(ml|milliliter|millilitre|"   # ml variants
+    r"l|liter|litre|"               # litre variants
+    r"glass(?:es)?|cup(?:s)?|"      # glass / cup
+    r"bottle(?:s)?)",               # bottle
+    re.IGNORECASE,
+)
+
+# Approximate conversions to ml
+_UNIT_TO_ML: dict[str, int] = {
+    "ml": 1,
+    "milliliter": 1,
+    "millilitre": 1,
+    "l": 1000,
+    "liter": 1000,
+    "litre": 1000,
+    "glass": 250,
+    "glasses": 250,
+    "cup": 240,
+    "cups": 240,
+    "bottle": 500,
+    "bottles": 500,
+}
+
+
+def try_parse_water_ml(text: str) -> int | None:
+    """
+    Try to extract a water amount (in ml) from plain text using regex only.
+
+    Returns the amount in ml if confident the user is describing water intake,
+    otherwise returns None so the caller can fall back to the AI.
+
+    Examples that match:
+        "drank 250ml water"        → 250
+        "drink 2 glasses of water" → 500
+        "had 1.5 liters of water"  → 1500
+        "500ml water"              → 500
+        "water 300"                → 300  (bare number with water keyword)
+
+    Examples that return None:
+        "2 eggs and 1 banana"      → None  (food, not water)
+        "how much water should I drink?" → None  (no amount)
+    """
+    if not _WATER_KEYWORDS.search(text):
+        return None  # doesn't mention water at all
+
+    match = _AMOUNT_PATTERN.search(text)
+    if match:
+        amount = float(match.group(1))
+        unit = match.group(2).lower().rstrip("s")  # normalise plural → singular
+        # Re-add 's' for units whose key includes it
+        unit_key = match.group(2).lower()
+        multiplier = _UNIT_TO_ML.get(unit_key) or _UNIT_TO_ML.get(unit, 1)
+        ml = int(amount * multiplier)
+        if 1 <= ml <= 5000:
+            return ml
+        return None  # out of validation range — let AI handle it
+
+    # Water keyword present but no recognised unit — look for a bare integer
+    bare = re.search(r"\b(\d{2,4})\b", text)  # 2-4 digit number (50–9999)
+    if bare:
+        ml = int(bare.group(1))
+        if 50 <= ml <= 5000:
+            return ml
+
+    return None
 
 
 def format_food_confirmation(entry: NutritionInfo) -> str:
@@ -161,8 +240,12 @@ def format_help_message() -> str:
         "Just send me what you ate in plain English and I'll log the nutrition automatically, e.g.:\n"
         "<i>2 eggs and 1 banana</i>\n"
         "<i>Chicken biryani 300g</i>\n\n"
+        "You can also log water in plain text:\n"
+        "<i>drank 500ml water</i>\n"
+        "<i>2 glasses of water</i>\n"
+        "<i>had 1 litre of water</i>\n\n"
         "<b>Commands:</b>\n"
-        "/water - Log water intake\n"
+        "/water - Log water intake (with quick-add buttons)\n"
         "/summary - Today's nutrition summary\n"
         "/analyze - AI analysis of today's diet\n"
         "/today - See everything logged today\n"

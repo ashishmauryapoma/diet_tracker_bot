@@ -31,6 +31,7 @@ from bot.utils import (
     format_today_message,
     format_water_confirmation,
     format_welcome_message,
+    try_parse_water_ml,
 )
 
 logger = logging.getLogger(__name__)
@@ -126,9 +127,9 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
         await _log_water(int(digits), update, context)
         return
 
-    # --- Otherwise: treat as a food log entry ---
+    # --- Otherwise: detect water intent first, then treat as food ---
     if len(text) < 2:
-        await message.reply_text("Please describe what you ate, e.g. '2 eggs and 1 banana'.")
+        await message.reply_text("Please describe what you ate or drank, e.g. '2 eggs' or 'drank 500ml water'.")
         return
     if len(text) > 500:
         await message.reply_text("That description is too long (max 500 characters). Please shorten it.")
@@ -136,6 +137,28 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
 
     await context.bot.send_chat_action(chat_id=chat.id, action=ChatAction.TYPING)
 
+    # --- Step 1: fast regex check for water ---
+    water_ml_fast = try_parse_water_ml(text)
+    if water_ml_fast is not None:
+        logger.info("Water detected via regex: %d ml from %r", water_ml_fast, text)
+        await _log_water(water_ml_fast, update, context)
+        return
+
+    # --- Step 2: AI water-intent check (only if text has water-adjacent keywords) ---
+    _WATER_HINT_WORDS = ("water", "drink", "drank", "glass", "bottle", "fluid",
+                         "hydrat", "h2o", "sip", "gulp", "aqua", "litre", "liter")
+    if any(w in text.lower() for w in _WATER_HINT_WORDS):
+        try:
+            is_water, ai_water_ml = await groq_client.detect_water_intake(text)
+        except Exception:  # noqa: BLE001 — never block food logging on AI water check
+            is_water, ai_water_ml = False, 0
+
+        if is_water and ai_water_ml > 0:
+            logger.info("Water detected via AI: %d ml from %r", ai_water_ml, text)
+            await _log_water(ai_water_ml, update, context)
+            return
+
+    # --- Step 3: treat as food log entry ---
     try:
         nutrition = await groq_client.analyze_food(text, logged_at=_now(config))
     except ValidationError as exc:
