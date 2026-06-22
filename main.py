@@ -35,6 +35,7 @@ from bot.groq_client import GroqNutritionClient
 from bot.handlers import (
     analyze_command,
     error_handler,
+    food_confirm_callback,
     handle_text,
     help_command,
     start,
@@ -132,6 +133,7 @@ def build_application() -> Application:
 
     # Inline keyboard callbacks
     application.add_handler(CallbackQueryHandler(water_callback, pattern=r"^water_"))
+    application.add_handler(CallbackQueryHandler(food_confirm_callback, pattern=r"^food_(confirm|undo)$"))
 
     # Free text  →  password attempt OR food entry
     application.add_handler(

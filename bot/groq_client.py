@@ -98,6 +98,30 @@ Conversion rules:
 - Set is_water to false for food items that happen to contain water (e.g. soup, fruit).
 """
 
+INTENT_CLASSIFY_SYSTEM_PROMPT = """\
+You are a classifier for a diet-tracking bot. Given a user message, decide \
+whether it is:
+  - "food"  : the user is describing something they ate or drank (food, meal, snack,
+               beverage including water, juice, milk, tea, coffee, etc.)
+  - "unknown": the message is NOT related to food or drink at all
+               (e.g. greetings, questions, random text, commands, math, code)
+
+Respond with ONLY a single valid JSON object:
+
+{
+  "intent": "food" or "unknown"
+}
+
+Examples:
+  "2 eggs and toast"          → {"intent": "food"}
+  "drank 500ml water"         → {"intent": "food"}
+  "hello how are you"         → {"intent": "unknown"}
+  "what is 2+2"               → {"intent": "unknown"}
+  "chicken biryani 300g"      → {"intent": "food"}
+  "lol ok thanks"             → {"intent": "unknown"}
+  "remind me to sleep early"  → {"intent": "unknown"}
+"""
+
 DAILY_ANALYSIS_SYSTEM_PROMPT = """\
 You are an expert dietitian and supportive nutrition coach reviewing a single \
 day of a client's logged food and water intake.
@@ -235,6 +259,25 @@ class GroqNutritionClient:
             amount_ml = 0
 
         return is_water, amount_ml
+
+    async def classify_intent(self, text: str) -> str:
+        """
+        Classify whether a user message is food/drink-related or completely unknown.
+
+        Returns:
+            "food"    — treat as a food or water entry
+            "unknown" — not related to diet tracking at all
+        """
+        text = text.strip()
+        if not text:
+            return "unknown"
+        try:
+            data = await self._chat_json(INTENT_CLASSIFY_SYSTEM_PROMPT, text)
+            intent = str(data.get("intent", "food")).lower()
+            return intent if intent in ("food", "unknown") else "food"
+        except GroqAnalysisError:
+            # On failure, assume food so we don't silently drop entries
+            return "food"
 
     async def analyze_day(
         self,
