@@ -73,9 +73,9 @@ async def _post_init(application: Application) -> None:
             BotCommand("help",    "List all commands"),
             BotCommand("water",   "Log water intake"),
             BotCommand("summary", "Today's nutrition summary"),
+            BotCommand("goal",    "Today's progress vs goals with bars"),
             BotCommand("analyze", "AI analysis of today's diet"),
             BotCommand("today",   "See everything logged today"),
-            BotCommand("goal",    "Show daily nutritional goals"),
         ]
     )
 

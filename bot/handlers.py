@@ -43,6 +43,7 @@ from bot.sheets_client import SheetsClient, SheetsError
 from bot.utils import (
     format_analysis_message,
     format_daily_summary,
+    format_daily_goals_with_progress,
     format_food_confirmation,
     format_help_message,
     format_nutritional_goals,
@@ -420,52 +421,24 @@ async def water_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
     if message is None:
         return
 
-    config, _groq, sheets_client = _services(context)
-
     if context.args:
         digits = "".join(ch for ch in context.args[0] if ch.isdigit())
         if not digits:
             await message.reply_text("Usage: /water <amount in ml>, e.g. /water 500")
             return
-        await _log_water_with_preview(int(digits), update, context)
+        await _log_water_direct(int(digits), update, context)
         return
 
-    # Show today's water goal completion chart
-    try:
-        summary = await sheets_client.compute_today_summary(_today_str(config))
-    except SheetsError:
-        await message.reply_text(
-            "⚠️ Couldn't reach Google Sheets right now. Please try /water again shortly."
-        )
-        return
-
-    water_liters = summary.water_ml / 1000
-    water_goal_liters = config.daily_water_goal_ml / 1000
-    remaining = max(config.daily_water_goal_ml - summary.water_ml, 0)
-    progress = min(summary.water_ml / config.daily_water_goal_ml, 1.0) if config.daily_water_goal_ml else 0
-    filled = int(progress * 10)
-    bar = "🟦" * filled + "⬜" * (10 - filled)
-
-    response = (
-        f"💧 <b>Today's Water Intake</b>\n\n"
-        f"{bar}\n"
-        f"<b>{water_liters:.2f} L</b> / {water_goal_liters:.2f} L goal\n\n"
+    await message.reply_text(
+        "💧 Usage: /water <amount in ml>\n\n"
+        "Examples:\n"
+        "  /water 250\n"
+        "  /water 500\n"
+        "  /water 1000\n\n"
+        "Or send water in plain text:\n"
+        "  drank 500ml water\n"
+        "  2 glasses of water"
     )
-
-    if remaining > 0:
-        response += f"Remaining: <b>{remaining} ml</b>\n\n"
-    else:
-        response += "🎉 <b>Goal reached for today!</b>\n\n"
-
-    response += (
-        "To log water, send the amount in plain text:\n"
-        "<i>drank 500ml water</i>\n"
-        "<i>2 glasses of water</i>\n"
-        "<i>1 litre water</i>\n\n"
-        "Or use: /water 250"
-    )
-
-    await message.reply_text(response, parse_mode=ParseMode.HTML)
 
 
 async def water_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -695,8 +668,27 @@ async def goal_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
     if message is None:
         return
 
-    config = _services(context)[0]
-    await message.reply_text(format_nutritional_goals(config), parse_mode=ParseMode.HTML)
+    config, _groq, sheets_client = _services(context)
+    try:
+        summary = await sheets_client.compute_today_summary(_today_str(config))
+    except SheetsError:
+        await message.reply_text(
+            "⚠️ Couldn't reach Google Sheets right now. Please try /goal again shortly."
+        )
+        return
+
+    await message.reply_text(
+        format_daily_goals_with_progress(
+            summary,
+            config.daily_water_goal_ml,
+            config.daily_calorie_goal,
+            config.daily_protein_goal_g,
+            config.daily_carbs_goal_g,
+            config.daily_fat_goal_g,
+            config.daily_fiber_goal_g,
+        ),
+        parse_mode=ParseMode.HTML,
+    )
 
 
 # --------------------------------------------------------------------------- #
