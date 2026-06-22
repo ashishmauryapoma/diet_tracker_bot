@@ -36,6 +36,7 @@ from bot.handlers import (
     analyze_command,
     error_handler,
     food_confirm_callback,
+    goal_command,
     water_confirm_callback,
     handle_text,
     help_command,
@@ -74,6 +75,7 @@ async def _post_init(application: Application) -> None:
             BotCommand("summary", "Today's nutrition summary"),
             BotCommand("analyze", "AI analysis of today's diet"),
             BotCommand("today",   "See everything logged today"),
+            BotCommand("goal",    "Show daily nutritional goals"),
         ]
     )
 
@@ -131,6 +133,7 @@ def build_application() -> Application:
     application.add_handler(CommandHandler("summary", summary_command))
     application.add_handler(CommandHandler("analyze", analyze_command))
     application.add_handler(CommandHandler("today",   today_command))
+    application.add_handler(CommandHandler("goal",    goal_command))
 
     # Inline keyboard callbacks
     application.add_handler(CallbackQueryHandler(water_callback, pattern=r"^water_"))

@@ -45,6 +45,7 @@ from bot.utils import (
     format_daily_summary,
     format_food_confirmation,
     format_help_message,
+    format_nutritional_goals,
     format_today_message,
     format_water_confirmation,
     format_welcome_message,
@@ -674,6 +675,20 @@ async def today_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
         return
 
     await message.reply_text(format_today_message(food_rows, water_ml), parse_mode=ParseMode.HTML)
+
+
+# --------------------------------------------------------------------------- #
+# /goal
+# --------------------------------------------------------------------------- #
+
+@require_auth
+async def goal_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    message = update.effective_message
+    if message is None:
+        return
+
+    config = _services(context)[0]
+    await message.reply_text(format_nutritional_goals(config), parse_mode=ParseMode.HTML)
 
 
 # --------------------------------------------------------------------------- #

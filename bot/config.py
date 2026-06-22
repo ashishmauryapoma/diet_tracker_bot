@@ -127,6 +127,10 @@ class Config:
     log_file: str
     daily_water_goal_ml: int
     daily_calorie_goal: int
+    daily_protein_goal_g: int
+    daily_carbs_goal_g: int
+    daily_fat_goal_g: int
+    daily_fiber_goal_g: int
 
     # Reliability
     max_retries: int
@@ -200,6 +204,18 @@ class Config:
         if self.daily_calorie_goal <= 0:
             raise ConfigError("DAILY_CALORIE_GOAL must be a positive integer.")
 
+        if self.daily_protein_goal_g <= 0:
+            raise ConfigError("DAILY_PROTEIN_GOAL_G must be a positive integer.")
+
+        if self.daily_carbs_goal_g <= 0:
+            raise ConfigError("DAILY_CARBS_GOAL_G must be a positive integer.")
+
+        if self.daily_fat_goal_g <= 0:
+            raise ConfigError("DAILY_FAT_GOAL_G must be a positive integer.")
+
+        if self.daily_fiber_goal_g <= 0:
+            raise ConfigError("DAILY_FIBER_GOAL_G must be a positive integer.")
+
         if self.use_webhook:
             if not self.webhook_url.startswith("https://"):
                 raise ConfigError(
@@ -244,6 +260,10 @@ def load_config() -> Config:
         log_file=_get_optional("LOG_FILE", "logs/bot.log"),
         daily_water_goal_ml=_get_optional_int("DAILY_WATER_GOAL_ML", 3000),
         daily_calorie_goal=_get_optional_int("DAILY_CALORIE_GOAL", 2000),
+        daily_protein_goal_g=_get_optional_int("DAILY_PROTEIN_GOAL_G", 150),
+        daily_carbs_goal_g=_get_optional_int("DAILY_CARBS_GOAL_G", 225),
+        daily_fat_goal_g=_get_optional_int("DAILY_FAT_GOAL_G", 65),
+        daily_fiber_goal_g=_get_optional_int("DAILY_FIBER_GOAL_G", 25),
 
         # Reliability
         max_retries=_get_optional_int("MAX_RETRIES", 3),

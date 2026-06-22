@@ -10,9 +10,12 @@ from __future__ import annotations
 
 import re
 from html import escape
-from typing import Any
+from typing import Any, TYPE_CHECKING
 
 from bot.models import DailySummaryData, NutritionInfo
+
+if TYPE_CHECKING:
+    from bot.config import Config
 
 # ---------------------------------------------------------------------------
 # Water intent detection — fast regex (no API call needed for obvious cases)
@@ -249,7 +252,21 @@ def format_help_message() -> str:
         "/summary - Today's nutrition summary\n"
         "/analyze - AI analysis of today's diet\n"
         "/today - See everything logged today\n"
+        "/goal - Show daily nutritional goals\n"
         "/help - Show this message"
+    )
+
+
+def format_nutritional_goals(config: "Config") -> str:
+    """Format the daily nutritional goals as a readable message."""
+    return (
+        "🎯 <b>Your Daily Nutritional Goals</b>\n\n"
+        f"Calories: <b>{config.daily_calorie_goal} kcal</b>\n"
+        f"Protein: <b>{config.daily_protein_goal_g} g</b>\n"
+        f"Carbs: <b>{config.daily_carbs_goal_g} g</b>\n"
+        f"Fat: <b>{config.daily_fat_goal_g} g</b>\n"
+        f"Fiber: <b>{config.daily_fiber_goal_g} g</b>\n\n"
+        f"Water: <b>{config.daily_water_goal_ml / 1000:.1f} L</b>"
     )
 
 
