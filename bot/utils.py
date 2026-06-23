@@ -237,21 +237,12 @@ def format_analysis_message(analysis: dict[str, Any]) -> str:
 
 def format_help_message() -> str:
     return (
-        "🥗 <b>Diet Tracker Bot</b>\n\n"
-        "Just send me what you ate in plain English and I'll log the nutrition automatically, e.g.:\n"
-        "<i>2 eggs and 1 banana</i>\n"
-        "<i>Chicken biryani 300g</i>\n\n"
-        "You can also log water in plain text:\n"
-        "<i>drank 500ml water</i>\n"
-        "<i>2 glasses of water</i>\n"
-        "<i>had 1 litre of water</i>\n\n"
-        "<b>Commands:</b>\n"
-        "/water - Log water intake\n"
-        "/summary - Today's nutrition summary\n"
-        "/goal - Today's progress vs goals (with bars)\n"
-        "/analyze - AI analysis of today's diet\n"
-        "/today - See everything logged today\n"
-        "/help - Show this message"
+        "🥗 <b>Diet Tracker</b>\n\n"
+        "<b>Available Commands:</b>\n\n"
+        "/goal - Your daily progress\n"
+        "/analyze - AI-powered insights\n"
+        "/today - Complete log\n"
+        "/help - This menu"
     )
 
 
@@ -308,8 +299,7 @@ def format_daily_goals_with_progress(
 
 def format_welcome_message() -> str:
     return (
-        "👋 Welcome to your Diet Tracker Bot!\n\n"
-        "You're authenticated. Send me any food you eat (e.g. <i>'2 eggs and toast'</i>) "
-        "and I'll log its nutrition automatically.\n\n"
-        "Type /help to see all available commands."
+        "✨ <b>Welcome to Diet Tracker</b>\n\n"
+        "Your premium nutrition tracking experience.\n\n"
+        "Type /help for commands."
     )

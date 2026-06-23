@@ -129,12 +129,12 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
     # ── Basic guards ───────────────────────────────────────────────────────
     if len(text) < 2:
         await message.reply_text(
-            "Please describe what you ate, e.g. '2 eggs' or 'grilled chicken with rice'."
+            "⚠️ Please enter a valid food item."
         )
         return
     if len(text) > 500:
         await message.reply_text(
-            "That description is too long (max 500 characters). Please shorten it."
+            "⚠️ Entry is too long. Please keep it under 500 characters."
         )
         return
 
@@ -144,12 +144,8 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
     intent = await groq_client.classify_intent(text)
     if intent == "unknown":
         await message.reply_text(
-            "🤔 I didn't quite catch that as a food entry.\n\n"
-            "Try something like:\n"
-            "  • <i>2 eggs and toast</i>\n"
-            "  • <i>Chicken biryani 300g</i>\n"
-            "  • <i>Grilled fish with vegetables</i>\n\n"
-            "Type /help to see all commands.",
+            "⚠️ I couldn't recognize that as a food entry.\n\n"
+            "Type /help for available commands.",
             parse_mode=ParseMode.HTML,
         )
         return
