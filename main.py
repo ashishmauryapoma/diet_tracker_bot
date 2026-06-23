@@ -23,6 +23,7 @@ from bot.handlers import (
     analyze_command,
     error_handler,
     food_confirm_callback,
+    water_confirm_callback,
     goal_command,
     handle_text,
     help_command,
@@ -104,6 +105,7 @@ def build_application() -> Application:
     application.add_handler(CommandHandler("goal",    goal_command))
 
     application.add_handler(CallbackQueryHandler(food_confirm_callback, pattern=r"^food_(confirm|undo)$"))
+    application.add_handler(CallbackQueryHandler(water_confirm_callback, pattern=r"^water_(confirm|undo)$"))
 
     application.add_handler(
         MessageHandler(filters.TEXT & ~filters.COMMAND, handle_text)

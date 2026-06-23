@@ -17,7 +17,10 @@ from bot.groq_client import GroqAnalysisError, GroqNutritionClient
 from bot.keyboards import (
     FOOD_CONFIRM_CALLBACK,
     FOOD_UNDO_CALLBACK,
+    WATER_CONFIRM_CALLBACK,
+    WATER_UNDO_CALLBACK,
     food_confirm_keyboard,
+    water_confirm_keyboard,
 )
 from bot.models import NutritionInfo, ValidationError, WaterEntry
 from bot.scheduler import schedule_reminders_for_chat
@@ -28,13 +31,17 @@ from bot.utils import (
     format_food_confirmation,
     format_help_message,
     format_today_message,
+    format_water_confirmation,
     format_welcome_message,
+    try_parse_water_ml,
 )
 
 logger = logging.getLogger(__name__)
 
 _PENDING_FOOD_KEY = "pending_food"
 _PENDING_FOOD_GLOBAL_KEY = "pending_food_global"
+_PENDING_WATER_KEY = "pending_water"
+_PENDING_WATER_GLOBAL_KEY = "pending_water_global"
 
 GENERIC_ERROR_MESSAGE = (
     "⚠️ Something went wrong while processing that. "
@@ -113,6 +120,42 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
         )
         return
 
+    # Try to detect water entry first (fast regex, no API call)
+    water_ml = try_parse_water_ml(text)
+    if water_ml is not None:
+        try:
+            water_entry = WaterEntry(amount_ml=water_ml, logged_at=_now(config))
+        except ValidationError as exc:
+            await message.reply_text(f"⚠️ {exc}")
+            return
+
+        # Get current water total for preview
+        date_str = _today_str(config)
+        try:
+            total_water_ml = await sheets_client.get_today_water_total(date_str)
+        except SheetsError:
+            total_water_ml = 0
+
+        preview_text = (
+            f"{format_water_confirmation(water_ml, total_water_ml + water_ml, config.daily_water_goal_ml)}\n\n"
+            "<i>Tap ✅ Log it to save, or ❌ Discard to cancel.</i>"
+        )
+        sent = await message.reply_text(
+            preview_text,
+            parse_mode=ParseMode.HTML,
+            reply_markup=water_confirm_keyboard(),
+        )
+
+        pending: dict = context.user_data.setdefault(_PENDING_WATER_KEY, {})
+        pending[sent.message_id] = water_entry
+
+        global_pending: dict = context.application.bot_data.setdefault(_PENDING_WATER_GLOBAL_KEY, {})
+        global_pending[sent.message_id] = water_entry
+
+        logger.debug("Pending water entry stored (msg_id=%d): %d ml", sent.message_id, water_ml)
+        return
+
+    # Not water, proceed with food detection
     await context.bot.send_chat_action(chat_id=chat.id, action=ChatAction.TYPING)
 
     intent = await groq_client.classify_intent(text)
@@ -231,6 +274,79 @@ async def food_confirm_callback(update: Update, context: ContextTypes.DEFAULT_TY
     logger.info(
         "Food entry confirmed and saved: %s (%.0f kcal)", nutrition.food, nutrition.calories
     )
+
+
+async def water_confirm_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    query = update.callback_query
+    if query is None or query.data is None or query.from_user is None or query.message is None:
+        return
+
+    if not is_authenticated(query.from_user.id, context):
+        await query.answer(ACCESS_DENIED_MESSAGE, show_alert=True)
+        return
+
+    await query.answer()
+
+    msg_id = query.message.message_id
+
+    pending: dict = context.user_data.get(_PENDING_WATER_KEY, {})
+    water: WaterEntry | None = pending.pop(msg_id, None)
+
+    global_pending: dict = context.application.bot_data.get(_PENDING_WATER_GLOBAL_KEY, {})
+    if water is None:
+        water = global_pending.pop(msg_id, None)
+    else:
+        global_pending.pop(msg_id, None)
+
+    logger.debug(
+        "water_confirm_callback: data=%r msg_id=%d pending_keys=%s water=%s",
+        query.data, msg_id, list(pending.keys()), water,
+    )
+
+    if query.data == WATER_UNDO_CALLBACK:
+        try:
+            await query.edit_message_text(
+                f"💧 Entry discarded.",
+                parse_mode=ParseMode.HTML,
+            )
+        except Exception as exc:
+            logger.warning("Could not edit message on discard: %s", exc)
+        logger.info("Water entry discarded by user (msg_id=%d).", msg_id)
+        return
+
+    if water is None:
+        await query.edit_message_text(
+            "⚠️ Could not find this entry — the bot may have restarted. "
+            "Please re-send your water message to log it again.",
+            parse_mode=ParseMode.HTML,
+        )
+        return
+
+    config, _groq, sheets_client = _services(context)
+    try:
+        await sheets_client.append_water_log(water)
+        await sheets_client.refresh_daily_summary(_today_str(config))
+    except SheetsError as exc:
+        logger.error("Failed to save confirmed water entry: %s", exc, exc_info=True)
+        try:
+            await query.edit_message_text(
+                f"💧 +{water.amount_ml} ml\n\n"
+                "⚠️ Couldn't write to Google Sheets right now. Please try again shortly.",
+                parse_mode=ParseMode.HTML,
+            )
+        except Exception:
+            pass
+        return
+
+    try:
+        await query.edit_message_text(
+            f"💧 <b>+{water.amount_ml} ml logged to your sheet!</b>",
+            parse_mode=ParseMode.HTML,
+        )
+    except Exception as exc:
+        logger.warning("Could not edit message after water confirm: %s", exc)
+
+    logger.info("Water entry confirmed and saved: %d ml", water.amount_ml)
 
 
 @require_auth
