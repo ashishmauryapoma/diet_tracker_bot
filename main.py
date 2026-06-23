@@ -1,18 +1,5 @@
 """
 Diet Tracker Bot — entry point.
-
-Deployment modes
-----------------
-Webhook mode  (Render / any public HTTPS host)
-    Set WEBHOOK_URL=https://your-service.onrender.com in environment vars.
-    Render injects PORT automatically.  The bot registers the webhook with
-    Telegram on startup and listens on 0.0.0.0:PORT.
-
-Polling mode  (local development, no public URL needed)
-    Leave WEBHOOK_URL unset (or empty).  The bot long-polls Telegram.
-
-Run:
-    python main.py
 """
 
 from __future__ import annotations
@@ -49,10 +36,6 @@ from bot.sheets_client import SheetsClient, SheetsError
 logger = logging.getLogger(__name__)
 
 
-# --------------------------------------------------------------------------- #
-# Post-init hook (runs once before the bot starts accepting updates)
-# --------------------------------------------------------------------------- #
-
 async def _post_init(application: Application) -> None:
     sheets_client: SheetsClient = application.bot_data["sheets_client"]
 
@@ -73,15 +56,10 @@ async def _post_init(application: Application) -> None:
         ]
     )
 
-    # Start the sheet-change poller — detects rows added manually in Google Sheets
     schedule_sheet_poller(application)
 
     logger.info("Bot initialised and ready.")
 
-
-# --------------------------------------------------------------------------- #
-# Application builder
-# --------------------------------------------------------------------------- #
 
 def build_application() -> Application:
     config = load_config()
@@ -115,22 +93,18 @@ def build_application() -> Application:
         .build()
     )
 
-    # Shared services — accessed in every handler via context.application.bot_data
     application.bot_data["config"] = config
     application.bot_data["groq_client"] = groq_client
     application.bot_data["sheets_client"] = sheets_client
 
-    # Commands
     application.add_handler(CommandHandler("start",   start))
     application.add_handler(CommandHandler("help",    help_command))
     application.add_handler(CommandHandler("analyze", analyze_command))
     application.add_handler(CommandHandler("today",   today_command))
     application.add_handler(CommandHandler("goal",    goal_command))
 
-    # Inline keyboard callbacks
     application.add_handler(CallbackQueryHandler(food_confirm_callback, pattern=r"^food_(confirm|undo)$"))
 
-    # Free text  →  password attempt OR food entry
     application.add_handler(
         MessageHandler(filters.TEXT & ~filters.COMMAND, handle_text)
     )
@@ -139,10 +113,6 @@ def build_application() -> Application:
 
     return application
 
-
-# --------------------------------------------------------------------------- #
-# Main
-# --------------------------------------------------------------------------- #
 
 def main() -> None:
     try:
@@ -155,16 +125,6 @@ def main() -> None:
     config = application.bot_data["config"]
 
     if config.use_webhook:
-        # ----------------------------------------------------------------
-        # Webhook mode — used on Render and any other public HTTPS host.
-        #
-        # Render provides:
-        #   • An automatic public HTTPS URL  (set as WEBHOOK_URL env var)
-        #   • A PORT env var for the process to bind on
-        #
-        # PTB registers the webhook with Telegram automatically when
-        # webhook_url is passed to run_webhook().
-        # ----------------------------------------------------------------
         logger.info(
             "Starting in WEBHOOK mode | url=%s | port=%d",
             config.full_webhook_url,
@@ -179,9 +139,6 @@ def main() -> None:
             drop_pending_updates=True,
         )
     else:
-        # ----------------------------------------------------------------
-        # Polling mode — local development (no public URL required).
-        # ----------------------------------------------------------------
         logger.info("Starting in POLLING mode (local dev).")
         application.run_polling(
             allowed_updates=["message", "callback_query"],

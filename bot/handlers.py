@@ -1,16 +1,5 @@
 """
-Telegram update handlers: commands, free-text food logging, inline
-keyboard callbacks, and the food confirm/undo flow.
-
-Flow for plain-text food entries
----------------------------------
-1. Classify intent — unknown text gets a friendly "I don't understand" reply.
-2. Food entries: Groq analyses the text, shows a preview with
-   [✅ Log it] [❌ Discard] buttons.  The entry is only written to Sheets
-   when the user taps "Log it".  "Discard" silently removes the buttons.
-
-Pending food entries are stored in context.user_data keyed by the
-preview message_id so multiple rapid entries don't interfere with each other.
+Telegram update handlers: commands, free-text food logging, keyboard callbacks.
 """
 
 from __future__ import annotations
@@ -53,10 +42,6 @@ GENERIC_ERROR_MESSAGE = (
 )
 
 
-# --------------------------------------------------------------------------- #
-# Helpers
-# --------------------------------------------------------------------------- #
-
 def _services(context: ContextTypes.DEFAULT_TYPE) -> tuple[Config, GroqNutritionClient, SheetsClient]:
     bot_data = context.application.bot_data
     return bot_data["config"], bot_data["groq_client"], bot_data["sheets_client"]
@@ -69,10 +54,6 @@ def _today_str(config: Config) -> str:
 def _now(config: Config) -> datetime:
     return datetime.now(config.tzinfo)
 
-
-# --------------------------------------------------------------------------- #
-# /start and authentication
-# --------------------------------------------------------------------------- #
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     user = update.effective_user
@@ -99,10 +80,6 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
     await update.effective_message.reply_text(format_help_message(), parse_mode=ParseMode.HTML)
 
 
-# --------------------------------------------------------------------------- #
-# Free-text handler
-# --------------------------------------------------------------------------- #
-
 async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     user = update.effective_user
     message = update.effective_message
@@ -112,7 +89,6 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
 
     text = message.text.strip()
 
-    # ── Unauthenticated ────────────────────────────────────────────────────
     if not is_authenticated(user.id, context):
         config, *_ = _services(context)
         if text == config.auth_password:
@@ -126,7 +102,6 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
 
     config, groq_client, sheets_client = _services(context)
 
-    # ── Basic guards ───────────────────────────────────────────────────────
     if len(text) < 2:
         await message.reply_text(
             "⚠️ Please enter a valid food item."
@@ -140,7 +115,6 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
 
     await context.bot.send_chat_action(chat_id=chat.id, action=ChatAction.TYPING)
 
-    # ── Step 1: intent classification — is this food or something else?
     intent = await groq_client.classify_intent(text)
     if intent == "unknown":
         await message.reply_text(
@@ -150,7 +124,6 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
         )
         return
 
-    # ── Step 2: food analysis → show preview + confirm/undo buttons ────────
     try:
         nutrition = await groq_client.analyze_food(text, logged_at=_now(config))
     except ValidationError as exc:
@@ -174,8 +147,6 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
         reply_markup=food_confirm_keyboard(),
     )
 
-    # Store pending entry in user_data AND bot_data so the callback can find it
-    # regardless of which context dict PTB resolves for the callback query.
     pending: dict = context.user_data.setdefault(_PENDING_FOOD_KEY, {})
     pending[sent.message_id] = nutrition
 
@@ -184,10 +155,6 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
 
     logger.debug("Pending food entry stored (msg_id=%d): %s", sent.message_id, nutrition.food)
 
-
-# --------------------------------------------------------------------------- #
-# Food confirm / undo callback
-# --------------------------------------------------------------------------- #
 
 async def food_confirm_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     query = update.callback_query
@@ -200,26 +167,22 @@ async def food_confirm_callback(update: Update, context: ContextTypes.DEFAULT_TY
 
     await query.answer()
 
-    # Retrieve the pending NutritionInfo stored at preview time.
-    # Check user_data first (primary), then fall back to bot_data (global store).
     msg_id = query.message.message_id
 
     pending: dict = context.user_data.get(_PENDING_FOOD_KEY, {})
     nutrition: NutritionInfo | None = pending.pop(msg_id, None)
 
-    # Fallback: check global bot_data store
     global_pending: dict = context.application.bot_data.get(_PENDING_FOOD_GLOBAL_KEY, {})
     if nutrition is None:
         nutrition = global_pending.pop(msg_id, None)
     else:
-        global_pending.pop(msg_id, None)  # keep in sync
+        global_pending.pop(msg_id, None)
 
     logger.debug(
         "food_confirm_callback: data=%r msg_id=%d pending_keys=%s nutrition=%s",
         query.data, msg_id, list(pending.keys()), nutrition,
     )
 
-    # ── Discard ─────────────────────────────────────────────────────────────
     if query.data == FOOD_UNDO_CALLBACK:
         try:
             body = format_food_confirmation(nutrition) if nutrition else "Entry"
@@ -227,14 +190,12 @@ async def food_confirm_callback(update: Update, context: ContextTypes.DEFAULT_TY
                 f"{body}\n\n<i>❌ Entry discarded.</i>",
                 parse_mode=ParseMode.HTML,
             )
-        except Exception as exc:  # noqa: BLE001
+        except Exception as exc:
             logger.warning("Could not edit message on discard: %s", exc)
         logger.info("Food entry discarded by user (msg_id=%d).", msg_id)
         return
 
-    # ── Confirm ─────────────────────────────────────────────────────────────
     if nutrition is None:
-        # Entry was already saved or bot restarted (user_data cleared on restart)
         await query.edit_message_text(
             "⚠️ Could not find this entry — the bot may have restarted. "
             "Please re-send your food message to log it again.",
@@ -254,7 +215,7 @@ async def food_confirm_callback(update: Update, context: ContextTypes.DEFAULT_TY
                 "⚠️ Couldn't write to Google Sheets right now. Please try again shortly.",
                 parse_mode=ParseMode.HTML,
             )
-        except Exception:  # noqa: BLE001
+        except Exception:
             pass
         return
 
@@ -264,17 +225,13 @@ async def food_confirm_callback(update: Update, context: ContextTypes.DEFAULT_TY
             "✅ <b>Logged to your sheet!</b>",
             parse_mode=ParseMode.HTML,
         )
-    except Exception as exc:  # noqa: BLE001
+    except Exception as exc:
         logger.warning("Could not edit message after confirm: %s", exc)
 
     logger.info(
         "Food entry confirmed and saved: %s (%.0f kcal)", nutrition.food, nutrition.calories
     )
 
-
-# --------------------------------------------------------------------------- #
-# /analyze
-# --------------------------------------------------------------------------- #
 
 @require_auth
 async def analyze_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -318,10 +275,6 @@ async def analyze_command(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
     await message.reply_text(format_analysis_message(analysis), parse_mode=ParseMode.HTML)
 
 
-# --------------------------------------------------------------------------- #
-# /today
-# --------------------------------------------------------------------------- #
-
 @require_auth
 async def today_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     message = update.effective_message
@@ -342,10 +295,6 @@ async def today_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
 
     await message.reply_text(format_today_message(food_rows, water_ml), parse_mode=ParseMode.HTML)
 
-
-# --------------------------------------------------------------------------- #
-# /goal
-# --------------------------------------------------------------------------- #
 
 @require_auth
 async def goal_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -376,10 +325,6 @@ async def goal_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
     )
 
 
-# --------------------------------------------------------------------------- #
-# Global error handler
-# --------------------------------------------------------------------------- #
-
 async def error_handler(update: object, context: ContextTypes.DEFAULT_TYPE) -> None:
     logger.error(
         "Unhandled exception while processing update: %s",
@@ -389,5 +334,5 @@ async def error_handler(update: object, context: ContextTypes.DEFAULT_TYPE) -> N
     if isinstance(update, Update) and update.effective_message is not None:
         try:
             await update.effective_message.reply_text(GENERIC_ERROR_MESSAGE)
-        except Exception:  # noqa: BLE001
+        except Exception:
             logger.exception("Failed to notify user about an unhandled error.")

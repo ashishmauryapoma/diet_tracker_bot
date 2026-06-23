@@ -286,10 +286,11 @@ def format_daily_goals_with_progress(
         bar = "█" * filled + "░" * (10 - filled)
         return f"{current:.1f}/{goal} {unit} {bar} {pct:.0f}%"
 
-    # Water bar using visual indicators
+    # Water bar using visual indicators (8 emojis total, 1 emoji per 500ml)
     def water_bar(current_ml: int, goal_ml: int, pct: float) -> str:
-        filled = int(pct / 10)
-        water_indicator = "🔵" * filled + "⚪" * (10 - filled)
+        # Calculate how many 500ml units are consumed (max 8 for 4L)
+        units_filled = min(int(current_ml / 500), 8)
+        water_indicator = "🔵" * units_filled + "⚪" * (8 - units_filled)
         return f"{current_ml/1000:.1f}L/{goal_ml/1000:.1f}L {water_indicator}"
 
     return (
