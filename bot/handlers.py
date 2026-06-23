@@ -120,14 +120,22 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
         )
         return
 
-    # Check if user just sent "water" or "1 glass" alone - default to 500ml
-    if text.lower() in ["water", "1 glass"]:
-        water_ml = 500
-    else:
-        # Try to detect water entry first (fast regex, no API call)
-        water_ml = try_parse_water_ml(text)
+    # Use AI to classify if user input is water or food
+    await context.bot.send_chat_action(chat_id=chat.id, action=ChatAction.TYPING)
     
-    if water_ml is not None:
+    try:
+        intent = await groq_client.classify_intent(text)
+    except GroqAnalysisError as exc:
+        logger.error("Intent classification failed for %r: %s", text, exc, exc_info=True)
+        await message.reply_text(
+            "⚠️ I couldn't classify that entry right now. Please try again in a moment."
+        )
+        return
+
+    # Check if intent is water-related
+    if intent == "water":
+        # Default to 500ml for water entries
+        water_ml = 500
         try:
             water_entry = WaterEntry(amount_ml=water_ml, logged_at=_now(config))
         except ValidationError as exc:
@@ -160,10 +168,7 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
         logger.debug("Pending water entry stored (msg_id=%d): %d ml", sent.message_id, water_ml)
         return
 
-    # Not water, proceed with food detection
-    await context.bot.send_chat_action(chat_id=chat.id, action=ChatAction.TYPING)
-
-    intent = await groq_client.classify_intent(text)
+    # Not water, check if it's a valid food intent
     if intent == "unknown":
         await message.reply_text(
             "⚠️ I couldn't recognize that as a food entry.\n\n"

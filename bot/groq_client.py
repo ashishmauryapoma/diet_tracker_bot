@@ -101,25 +101,31 @@ Conversion rules:
 INTENT_CLASSIFY_SYSTEM_PROMPT = """\
 You are a classifier for a diet-tracking bot. Given a user message, decide \
 whether it is:
-  - "food"  : the user is describing something they ate or drank (food, meal, snack,
-               beverage including water, juice, milk, tea, coffee, etc.)
-  - "unknown": the message is NOT related to food or drink at all
+  - "water" : the user is describing drinking water or water-like beverages \
+              (plain water, sparkling water, coconut water, herbal tea — \
+              NOT sugary drinks, milk, juice, or smoothies)
+  - "food"  : the user is describing food or other beverages \
+              (food, meal, snack, juice, milk, coffee, tea with sugar, etc.)
+  - "unknown": the message is NOT related to food or drink at all \
                (e.g. greetings, questions, random text, commands, math, code)
 
 Respond with ONLY a single valid JSON object:
 
 {
-  "intent": "food" or "unknown"
+  "intent": "water", "food", or "unknown"
 }
 
 Examples:
+  "drank 500ml water"         → {"intent": "water"}
+  "water"                     → {"intent": "water"}
+  "waetr"                     → {"intent": "water"}
+  "pani"                      → {"intent": "water"}
+  "h2o"                       → {"intent": "water"}
+  "1 glass"                   → {"intent": "water"}
   "2 eggs and toast"          → {"intent": "food"}
-  "drank 500ml water"         → {"intent": "food"}
+  "chicken biryani 300g"      → {"intent": "food"}
   "hello how are you"         → {"intent": "unknown"}
   "what is 2+2"               → {"intent": "unknown"}
-  "chicken biryani 300g"      → {"intent": "food"}
-  "lol ok thanks"             → {"intent": "unknown"}
-  "remind me to sleep early"  → {"intent": "unknown"}
 """
 
 DAILY_ANALYSIS_SYSTEM_PROMPT = """\
@@ -262,10 +268,11 @@ class GroqNutritionClient:
 
     async def classify_intent(self, text: str) -> str:
         """
-        Classify whether a user message is food/drink-related or completely unknown.
+        Classify whether a user message is water, food, or completely unknown.
 
         Returns:
-            "food"    — treat as a food or water entry
+            "water"   — treat as a water entry (500ml default)
+            "food"    — treat as a food entry (AI analysis)
             "unknown" — not related to diet tracking at all
         """
         text = text.strip()
@@ -274,7 +281,7 @@ class GroqNutritionClient:
         try:
             data = await self._chat_json(INTENT_CLASSIFY_SYSTEM_PROMPT, text)
             intent = str(data.get("intent", "food")).lower()
-            return intent if intent in ("food", "unknown") else "food"
+            return intent if intent in ("water", "food", "unknown") else "food"
         except GroqAnalysisError:
             # On failure, assume food so we don't silently drop entries
             return "food"

@@ -6,8 +6,8 @@
 Add water confirmation keyboard to keyboards.py.
 
 ### Sub-tasks:
-- [ ] Define `WATER_CONFIRM_CALLBACK` and `WATER_UNDO_CALLBACK` constants
-- [ ] Create `water_confirm_keyboard()` function with ✅ Log / ❌ Discard buttons
+- [x] Define `WATER_CONFIRM_CALLBACK` and `WATER_UNDO_CALLBACK` constants
+- [x] Create `water_confirm_keyboard()` function with ✅ Log / ❌ Discard buttons
 
 ### Files to modify:
 - `bot/keyboards.py`
@@ -21,12 +21,12 @@ Add water confirmation keyboard to keyboards.py.
 Implement water confirmation and discard handlers in handlers.py.
 
 ### Sub-tasks:
-- [ ] Add `_PENDING_WATER_KEY` and `_PENDING_WATER_GLOBAL_KEY` constants
-- [ ] Implement `water_confirm_callback()` function:
+- [x] Add `_PENDING_WATER_KEY` and `_PENDING_WATER_GLOBAL_KEY` constants
+- [x] Implement `water_confirm_callback()` function:
   - Handle confirm (save to sheet, refresh summary, show success)
   - Handle discard (show discarded message)
   - Handle missing entry (show "entry expired" message)
-- [ ] Update `handle_text()` to detect water before food:
+- [x] Update `handle_text()` to detect water before food:
   - Call `try_parse_water_ml(text)` first
   - If amount found and valid: create WaterEntry, show confirmation
   - If ValidationError: show error message
@@ -51,8 +51,8 @@ Implement water confirmation and discard handlers in handlers.py.
 Register the water callback handler in main.py.
 
 ### Sub-tasks:
-- [ ] Import `water_confirm_callback` from handlers
-- [ ] Add `CallbackQueryHandler` for water confirmation pattern
+- [x] Import `water_confirm_callback` from handlers
+- [x] Add `CallbackQueryHandler` for water confirmation pattern
 
 ### Files to modify:
 - `bot/main.py`
@@ -66,15 +66,15 @@ Register the water callback handler in main.py.
 Test the water logging feature end-to-end.
 
 ### Test scenarios:
-- [ ] User sends "drank 250ml water" → preview shows
-- [ ] User confirms → saved to Water_Log sheet
-- [ ] Check Daily_Summary updates correctly
-- [ ] `/goal` command shows updated water total
-- [ ] `/today` command shows water entry
-- [ ] User sends "2 glasses" → converted to 500ml
-- [ ] User sends "1.5 liters" → converted to 1500ml
-- [ ] User tries "0ml" → validation error
-- [ ] User tries "6000ml" → validation error
-- [ ] User discards entry → shows "discarded"
-- [ ] Food entries still work normally
+- [~] User sends "drank 250ml water" → preview shows
+- [x] User confirms → saved to Water_Log sheet
+- [x] Check Daily_Summary updates correctly
+- [x] `/goal` command shows updated water total
+- [x] `/today` command shows water entry
+- [~] User sends "2 glasses" → converted to 500ml
+- [~] User sends "1.5 liters" → converted to 1500ml
+- [~] User tries "0ml" → validation error
+- [~] User tries "6000ml" → validation error
+- [~] User discards entry → shows "discarded"
+- [x] Food entries still work normally
 
