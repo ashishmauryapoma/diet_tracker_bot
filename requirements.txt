@@ -1,5 +1,5 @@
 # Telegram bot framework — [job-queue] adds APScheduler for reminders.
-python-telegram-bot[webhooks]>=22.8
+python-telegram-bot[webhooks,job-queue]>=22.8
 
 # Groq AI SDK (async) — nutrition analysis + daily coaching.
 groq>=0.31.0
