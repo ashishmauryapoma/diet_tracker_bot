@@ -37,14 +37,10 @@ from bot.handlers import (
     error_handler,
     food_confirm_callback,
     goal_command,
-    water_confirm_callback,
     handle_text,
     help_command,
     start,
-    summary_command,
     today_command,
-    water_callback,
-    water_command,
 )
 from bot.logger import setup_logging
 from bot.scheduler import schedule_sheet_poller
@@ -71,8 +67,6 @@ async def _post_init(application: Application) -> None:
         [
             BotCommand("start",   "Authenticate / welcome message"),
             BotCommand("help",    "List all commands"),
-            BotCommand("water",   "Log water intake"),
-            BotCommand("summary", "Today's nutrition summary"),
             BotCommand("goal",    "Today's progress vs goals with bars"),
             BotCommand("analyze", "AI analysis of today's diet"),
             BotCommand("today",   "See everything logged today"),
@@ -129,16 +123,12 @@ def build_application() -> Application:
     # Commands
     application.add_handler(CommandHandler("start",   start))
     application.add_handler(CommandHandler("help",    help_command))
-    application.add_handler(CommandHandler("water",   water_command))
-    application.add_handler(CommandHandler("summary", summary_command))
     application.add_handler(CommandHandler("analyze", analyze_command))
     application.add_handler(CommandHandler("today",   today_command))
     application.add_handler(CommandHandler("goal",    goal_command))
 
     # Inline keyboard callbacks
-    application.add_handler(CallbackQueryHandler(water_callback, pattern=r"^water_"))
     application.add_handler(CallbackQueryHandler(food_confirm_callback, pattern=r"^food_(confirm|undo)$"))
-    application.add_handler(CallbackQueryHandler(water_confirm_callback, pattern=r"^water_(confirm|undo)$"))
 
     # Free text  →  password attempt OR food entry
     application.add_handler(

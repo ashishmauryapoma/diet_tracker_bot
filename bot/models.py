@@ -89,7 +89,7 @@ class NutritionInfo:
     def to_sheet_row(self) -> list[str]:
         """Serialize to the row format expected by the Food_Log sheet."""
         return [
-            self.logged_at.strftime("%Y-%m-%d"),
+            self.logged_at.strftime("%d-%m-%Y"),
             self.logged_at.strftime("%H:%M:%S"),
             self.food,
             f"{self.calories:.1f}",
@@ -116,7 +116,7 @@ class WaterEntry:
 
     def to_sheet_row(self) -> list[str]:
         return [
-            self.logged_at.strftime("%Y-%m-%d"),
+            self.logged_at.strftime("%d-%m-%Y"),
             self.logged_at.strftime("%H:%M:%S"),
             str(self.amount_ml),
         ]
