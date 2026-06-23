@@ -286,14 +286,20 @@ def format_daily_goals_with_progress(
         bar = "█" * filled + "░" * (10 - filled)
         return f"{current:.1f}/{goal} {unit} {bar} {pct:.0f}%"
 
+    # Water bar using visual indicators
+    def water_bar(current_ml: int, goal_ml: int, pct: float) -> str:
+        filled = int(pct / 10)
+        water_indicator = "🔵" * filled + "⚪" * (10 - filled)
+        return f"{current_ml/1000:.1f}L/{goal_ml/1000:.1f}L {water_indicator}"
+
     return (
         "📊 <b>Today's Progress</b>\n\n"
         f"Calories: {progress_line(summary.total_calories, calorie_goal, 'kcal', calorie_pct)}\n"
         f"Protein: {progress_line(summary.total_protein, protein_goal_g, 'g', protein_pct)}\n"
         f"Carbs: {progress_line(summary.total_carbs, carbs_goal_g, 'g', carbs_pct)}\n"
         f"Fat: {progress_line(summary.total_fat, fat_goal_g, 'g', fat_pct)}\n"
-        f"Fiber: {progress_line(summary.total_fiber, fiber_goal_g, 'g', fiber_pct)}\n"
-        f"💧 Water: {progress_line(summary.water_ml / 1000, water_goal_liters, 'L', water_pct)}"
+        f"Fiber: {progress_line(summary.total_fiber, fiber_goal_g, 'g', fiber_pct)}\n\n"
+        f"💧 Water: {water_bar(summary.water_ml, water_goal_ml, water_pct)}"
     )
 
 
