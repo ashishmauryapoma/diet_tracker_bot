@@ -121,14 +121,15 @@ def format_water_confirmation(amount_ml: int, total_today_ml: int, goal_ml: int)
     goal_liters = goal_ml / 1000
     remaining = max(goal_ml - total_today_ml, 0)
     progress = min(total_today_ml / goal_ml, 1.0) if goal_ml else 0
-    filled = int(progress * 10)
-    bar = "🟦" * filled + "⬜" * (10 - filled)
+    
+    # Calculate how many 500ml units are consumed (8 emojis total, 1 emoji per 500ml)
+    units_filled = min(int(total_today_ml / 500), 8)
+    water_bar = "🔵" * units_filled + "⚪" * (8 - units_filled)
 
     lines = [
         f"💧 <b>+{amount_ml} ml logged</b>",
         "",
-        f"{bar}",
-        f"Today: <b>{liters:.2f} L</b> / {goal_liters:.2f} L goal",
+        f"💧 Water: <b>{liters:.1f}L</b>/<b>{goal_liters:.1f}L</b> {water_bar}",
     ]
     if remaining > 0:
         lines.append(f"Remaining: {remaining} ml")

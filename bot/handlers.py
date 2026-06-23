@@ -120,8 +120,13 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
         )
         return
 
-    # Try to detect water entry first (fast regex, no API call)
-    water_ml = try_parse_water_ml(text)
+    # Check if user just sent "water" or "1 glass" alone - default to 500ml
+    if text.lower() in ["water", "1 glass"]:
+        water_ml = 500
+    else:
+        # Try to detect water entry first (fast regex, no API call)
+        water_ml = try_parse_water_ml(text)
+    
     if water_ml is not None:
         try:
             water_entry = WaterEntry(amount_ml=water_ml, logged_at=_now(config))
